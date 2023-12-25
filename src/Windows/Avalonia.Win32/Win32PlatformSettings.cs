@@ -32,15 +32,17 @@ internal class Win32PlatformSettings : DefaultPlatformSettings
     
     public override PlatformColorValues GetColorValues()
     {
-        if (Win32Platform.WindowsVersion.Major < 10)
+        if (Win32Platform.WindowsVersion.Major < 10
+            // Windows PE does not have these classes registered, so we allow for a fallback if they don't exist at runtime.
+            || !NativeWinRTMethods.TryCreateInstance<IUISettings3>(
+                "Windows.UI.ViewManagement.UISettings", out var uiSettings)
+            || !NativeWinRTMethods.TryCreateInstance<IAccessibilitySettings>(
+                "Windows.UI.ViewManagement.AccessibilitySettings", out var accessibilitySettings))
         {
             return base.GetColorValues();
         }
 
-        var uiSettings = NativeWinRTMethods.CreateInstance<IUISettings3>("Windows.UI.ViewManagement.UISettings");
         var accent = uiSettings.GetColorValue(UIColorType.Accent).ToAvalonia();
-
-        var accessibilitySettings = NativeWinRTMethods.CreateInstance<IAccessibilitySettings>("Windows.UI.ViewManagement.AccessibilitySettings");
         if (accessibilitySettings.HighContrast == 1)
         {
             // Windows 11 has 4 different high contrast schemes:

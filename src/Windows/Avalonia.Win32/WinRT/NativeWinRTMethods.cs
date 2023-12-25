@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Avalonia.Win32.Interop;
 using MicroCom.Runtime;
 
 namespace Avalonia.Win32.WinRT
@@ -37,15 +39,41 @@ namespace Avalonia.Win32.WinRT
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         delegate int GetActivationFactoryDelegate(IntPtr classId, out IntPtr ppv);
-        
-        internal static T CreateInstance<T>(string fullName) where T : IUnknown
+
+        private static int TryCreateInstanceImpl<T>(string fullName, out T? instance)
+            where T : IUnknown
         {
             var s = WindowsCreateString(fullName);
             EnsureRoInitialized();
-            var pUnk = RoActivateInstance(s);
-            using var unk = MicroComRuntime.CreateProxyFor<IUnknown>(pUnk, true);
-            WindowsDeleteString(s);
-            return MicroComRuntime.QueryInterface<T>(unk);
+            var hr = RoActivateInstance(s, out var pUnk);
+            if (hr == 0)
+            {
+                using var unk = MicroComRuntime.CreateProxyFor<IUnknown>(pUnk, true);
+                WindowsDeleteString(s);
+                instance = MicroComRuntime.QueryInterface<T>(unk);
+            }
+            else
+            {
+                instance = default;
+            }
+            return hr;
+        }
+
+        internal static bool TryCreateInstance<T>(string fullName, [NotNullWhen(true)] out T? instance)
+            where T : IUnknown
+        {
+            return 0 == TryCreateInstanceImpl(fullName, out instance);
+        }
+
+        internal static T CreateInstance<T>(string fullName) where T : IUnknown
+        {
+            var hr = TryCreateInstanceImpl<T>(fullName, out var instance);
+            if (0 != hr)
+            {
+                Marshal.ThrowExceptionForHR(hr);
+            }
+
+            return instance!;
         }
         
         internal static TFactory CreateActivationFactory<TFactory>(string fullName) where TFactory : IUnknown
@@ -96,8 +124,8 @@ namespace Avalonia.Win32.WinRT
         [DllImport("combase.dll", PreserveSig = false)]
         private static extern void RoInitialize(RO_INIT_TYPE initType);
 
-        [DllImport("combase.dll", PreserveSig = false)]
-        private static extern IntPtr RoActivateInstance(IntPtr activatableClassId);
+        [DllImport("combase.dll", PreserveSig = true)]
+        private static extern int RoActivateInstance(IntPtr activatableClassId, [Out] out IntPtr instance);
 
         [DllImport("combase.dll", PreserveSig = false)]
         private static extern IntPtr RoGetActivationFactory(IntPtr activatableClassId, ref Guid iid);
